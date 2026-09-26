@@ -14,8 +14,8 @@ MapMemoryNode::MapMemoryNode() : Node("map_memory"), has_initialized_pose_(false
 
   global_map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", 10);
   
-  costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-    "/costmap", 10, std::bind(&MapMemoryNode::costmapCallback, this, std::placeholders::_1)
+costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+    "/local_costmap", 10, std::bind(&MapMemoryNode::costmapCallback, this, std::placeholders::_1)
   );
   
   odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
