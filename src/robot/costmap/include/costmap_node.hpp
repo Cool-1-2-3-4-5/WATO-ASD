@@ -5,7 +5,8 @@
 #include "std_msgs/msg/string.hpp"
  
 #include "costmap_core.hpp"
- 
+#include <sensor_msgs/msg/laser_scan.hpp>
+
 class CostmapNode : public rclcpp::Node {
   public:
     CostmapNode();
