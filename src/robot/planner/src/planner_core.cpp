@@ -12,7 +12,6 @@ namespace
 {
 constexpr double kSqrt2 = 1.41421356237;
 
-// Open-list entry. The priority queue is a min-heap on f = g + h.
 struct AStarNode {
   int index;
   double f_score;
@@ -25,7 +24,7 @@ struct CompareF {
 
 const int kDx[8] = {1, -1, 0, 0, 1, 1, -1, -1};
 const int kDy[8] = {0, 0, 1, -1, 1, -1, 1, -1};
-}  // namespace
+}
 
 PlannerCore::PlannerCore(const rclcpp::Logger& logger) : logger_(logger) {}
 
@@ -42,7 +41,6 @@ bool PlannerCore::worldToGrid(const nav_msgs::msg::OccupancyGrid& map, const Poi
 }
 
 Point2D PlannerCore::gridToWorld(const nav_msgs::msg::OccupancyGrid& map, const CellIndex& c) const {
-  // Use the centre of the cell
   return {map.info.origin.position.x + (c.x + 0.5) * map.info.resolution,
           map.info.origin.position.y + (c.y + 0.5) * map.info.resolution};
 }
@@ -55,15 +53,11 @@ bool PlannerCore::traversable(int idx, bool allow_escape) const {
   return v < config_.lethal_cost || (allow_escape && v <= escape_cost_);
 }
 
-// Moving through a cell costs more the closer it is to an obstacle, so A* prefers paths that
-// keep a healthy distance from walls instead of hugging the edge of the lethal zone.
 double PlannerCore::stepMultiplier(int idx) const {
   const int v = std::max<int>(0, (*data_)[idx]);
   return 1.0 + config_.cost_weight * (v / 100.0);
 }
 
-// Octile distance: exact cost of the shortest 8-connected path on an empty grid, so it never
-// overestimates and A* stays optimal.
 double PlannerCore::heuristic(const CellIndex& a, const CellIndex& b) const {
   const int dx = std::abs(a.x - b.x);
   const int dy = std::abs(a.y - b.y);
@@ -71,7 +65,6 @@ double PlannerCore::heuristic(const CellIndex& a, const CellIndex& b) const {
 }
 
 bool PlannerCore::findNearestTraversable(const CellIndex& from, int max_cells, CellIndex& out) const {
-  // Breadth-first search outwards from the requested cell.
   std::vector<uint8_t> seen(static_cast<size_t>(width_) * height_, 0);
   std::queue<CellIndex> q;
   q.push(from);
@@ -82,8 +75,6 @@ bool PlannerCore::findNearestTraversable(const CellIndex& from, int max_cells, C
     if (std::max(std::abs(c.x - from.x), std::abs(c.y - from.y)) > max_cells) {
       continue;
     }
-    // Only accept cells we have actually seen to be safe. Unknown cells are no good here: the
-    // inside of an obstacle is never observed by the lidar, so it is always "unknown".
     const int v = (*data_)[c.y * width_ + c.x];
     if (v >= 0 && v < config_.lethal_cost) {
       out = c;
@@ -121,7 +112,7 @@ bool PlannerCore::runAStar(const CellIndex& start, const CellIndex& goal,
     open.pop();
 
     if (closed_[current.index]) {
-      continue;  // stale queue entry
+      continue;
     }
     closed_[current.index] = 1;
 
@@ -146,7 +137,6 @@ bool PlannerCore::runAStar(const CellIndex& start, const CellIndex& goal,
 
       const bool diagonal = kDx[k] != 0 && kDy[k] != 0;
       if (diagonal) {
-        // Don't cut corners between two blocked orthogonal neighbours.
         if (!traversable(cy * width_ + nx) || !traversable(ny * width_ + cx)) continue;
       }
 
@@ -184,8 +174,6 @@ bool PlannerCore::plan(const nav_msgs::msg::OccupancyGrid& map, const Point2D& s
     return false;
   }
 
-  // If the robot has ended up inside an inflated zone, allow it to move through cells that are
-  // no worse than where it currently is so it can drive back out. Never allow real obstacles.
   const int start_cost = map.data[start_cell.y * width_ + start_cell.x];
   escape_cost_ = std::min(99, std::max(-1, start_cost));
 
@@ -202,8 +190,6 @@ bool PlannerCore::plan(const nav_msgs::msg::OccupancyGrid& map, const Point2D& s
 
   std::vector<CellIndex> cells;
   if (!runAStar(start_cell, goal_cell, cells)) {
-    // The goal may be in unexplored space that turns out to be enclosed (e.g. the inside of a box
-    // we have now seen from every side). Fall back to the nearest cell known to be safe.
     const int radius_cells = static_cast<int>(config_.goal_search_radius / map.info.resolution);
     CellIndex adjusted;
     if (goal_cell != requested_goal_cell ||
@@ -218,11 +204,10 @@ bool PlannerCore::plan(const nav_msgs::msg::OccupancyGrid& map, const Point2D& s
   for (const auto& c : cells) {
     path.push_back(gridToWorld(map, c));
   }
-  // Finish exactly on the requested goal unless it had to be moved out of an obstacle.
   if (cells.back() == requested_goal_cell) {
     path.back() = goal;
   }
   return true;
 }
 
-}  // namespace robot
+}

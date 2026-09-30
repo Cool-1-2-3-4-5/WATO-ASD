@@ -14,12 +14,10 @@ find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
-# Core Pure Pursuit logic
 add_library(control_lib src/control_core.cpp)
 target_include_directories(control_lib PUBLIC include)
 ament_target_dependencies(control_lib rclcpp nav_msgs geometry_msgs)
 
-# ROS2 node
 add_executable(control_node src/control_node.cpp)
 target_link_libraries(control_node control_lib)
 ament_target_dependencies(control_node rclcpp nav_msgs geometry_msgs)

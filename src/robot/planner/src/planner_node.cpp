@@ -38,7 +38,7 @@ PlannerNode::PlannerNode() : Node("planner"), planner_(this->get_logger()) {
 void PlannerNode::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
   map_ = msg;
   if (state_ == State::WAITING_FOR_ROBOT_TO_REACH_GOAL) {
-    planPath();  // the world changed, so the old path may no longer be valid
+    planPath();
   }
 }
 
@@ -77,8 +77,6 @@ void PlannerNode::timerCallback() {
   }
 }
 
-// Distance to where we are actually heading: the requested goal, or the nearest free cell to it
-// if the goal was clicked inside an obstacle.
 double PlannerNode::distanceToGoal() const {
   return std::hypot(planned_goal_.x - robot_position_.x, planned_goal_.y - robot_position_.y);
 }

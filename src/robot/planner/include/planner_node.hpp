@@ -12,12 +12,6 @@
 
 #include "planner_core.hpp"
 
-// Global planner. Listens for goals on /goal_point, plans with A* on /map and publishes /path.
-//
-// State machine:
-//   WAITING_FOR_GOAL                 -> (goal received)            -> WAITING_FOR_ROBOT_TO_REACH_GOAL
-//   WAITING_FOR_ROBOT_TO_REACH_GOAL  -> (goal reached / timed out) -> WAITING_FOR_GOAL
-// While navigating, the path is replanned whenever the map updates and periodically on a timer.
 class PlannerNode : public rclcpp::Node {
   public:
     PlannerNode();
@@ -45,18 +39,17 @@ class PlannerNode : public rclcpp::Node {
     rclcpp::TimerBase::SharedPtr timer_;
 
     nav_msgs::msg::OccupancyGrid::SharedPtr map_;
-    robot::Point2D goal_;          // goal as requested
-    robot::Point2D planned_goal_;  // end of the latest path (differs if the goal was blocked)
+    robot::Point2D goal_;
+    robot::Point2D planned_goal_;
     robot::Point2D robot_position_;
     bool have_odom_ = false;
 
     rclcpp::Time goal_start_time_;
     rclcpp::Time last_plan_time_;
 
-    // Parameters
     double goal_tolerance_;
     double replan_period_;
     double goal_timeout_;
 };
 
-#endif  // PLANNER_NODE_HPP_
+#endif

@@ -9,7 +9,7 @@ namespace
 double yawFromQuaternion(const geometry_msgs::msg::Quaternion& q) {
   return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 }
-}  // namespace
+}
 
 ControlNode::ControlNode() : Node("control"), control_(this->get_logger()) {
   robot::ControlConfig config;
@@ -49,7 +49,6 @@ void ControlNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
 }
 
 void ControlNode::stop() {
-  // Send a single zero command so we don't fight manual teleop while idle.
   if (moving_) {
     cmd_pub_->publish(geometry_msgs::msg::Twist());
     moving_ = false;

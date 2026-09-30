@@ -25,9 +25,6 @@ void MapMemoryCore::configure(const MapMemoryConfig& config) {
               map_.info.width, map_.info.height, config.resolution, config.frame_id.c_str());
 }
 
-// Rather than pushing every local cell into the global grid (which leaves holes once the local
-// grid is rotated), we walk every global cell covered by the costmap and sample the local cell
-// underneath it. This gives a gap-free result regardless of the relative resolutions.
 void MapMemoryCore::fuse(const nav_msgs::msg::OccupancyGrid& costmap, const Pose2D& pose) {
   const double c = std::cos(pose.yaw);
   const double s = std::sin(pose.yaw);
@@ -44,7 +41,6 @@ void MapMemoryCore::fuse(const nav_msgs::msg::OccupancyGrid& costmap, const Pose
   const int g_w = static_cast<int>(map_.info.width);
   const int g_h = static_cast<int>(map_.info.height);
 
-  // Global-frame bounding box of the rotated costmap.
   const double corners[4][2] = {
     {l_ox, l_oy}, {l_ox + l_w * l_res, l_oy},
     {l_ox, l_oy + l_h * l_res}, {l_ox + l_w * l_res, l_oy + l_h * l_res}};
@@ -66,7 +62,6 @@ void MapMemoryCore::fuse(const nav_msgs::msg::OccupancyGrid& costmap, const Pose
     for (int gx = gx0; gx <= gx1; ++gx) {
       const double wx = g_ox + (gx + 0.5) * g_res;
 
-      // Global -> local (inverse rigid transform).
       const double dx = wx - pose.x;
       const double dy = wy - pose.y;
       const double lx = c * dx + s * dy;
@@ -80,10 +75,10 @@ void MapMemoryCore::fuse(const nav_msgs::msg::OccupancyGrid& costmap, const Pose
 
       const int8_t value = costmap.data[cy * l_w + cx];
       if (value >= 0) {
-        map_.data[gy * g_w + gx] = value;  // newest observation wins
+        map_.data[gy * g_w + gx] = value;
       }
     }
   }
 }
 
-}  // namespace robot
+}

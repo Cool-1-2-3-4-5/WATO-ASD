@@ -13,12 +13,10 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 
-# Core map fusion logic
 add_library(map_memory_lib src/map_memory_core.cpp)
 target_include_directories(map_memory_lib PUBLIC include)
 ament_target_dependencies(map_memory_lib rclcpp nav_msgs)
 
-# ROS2 node
 add_executable(map_memory_node src/map_memory_node.cpp)
 target_link_libraries(map_memory_node map_memory_lib)
 ament_target_dependencies(map_memory_node rclcpp nav_msgs)

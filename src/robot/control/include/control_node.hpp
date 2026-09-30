@@ -8,7 +8,6 @@
 
 #include "control_core.hpp"
 
-// Follows /path with Pure Pursuit using /odom/filtered and publishes /cmd_vel at a fixed rate.
 class ControlNode : public rclcpp::Node {
   public:
     ControlNode();
@@ -28,7 +27,7 @@ class ControlNode : public rclcpp::Node {
 
     nav_msgs::msg::Odometry::SharedPtr odom_;
     rclcpp::Time last_odom_time_;
-    bool moving_ = false;  // true while we are the ones commanding the robot
+    bool moving_ = false;
 };
 
-#endif  // CONTROL_NODE_HPP_
+#endif

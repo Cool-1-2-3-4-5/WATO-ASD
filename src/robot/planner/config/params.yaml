@@ -1,9 +1,9 @@
 planner_node:
   ros__parameters:
-    lethal_cost: 48          # cells at or above this cost are blocked (~1.3m from obstacles)
-    cost_weight: 4.0         # penalty for travelling through inflated cells
-    allow_unknown: true      # plan through unexplored space
-    goal_search_radius: 3.0  # m, snap blocked goals to the nearest free cell
-    goal_tolerance: 0.5      # m
-    replan_period: 1.0       # s
-    goal_timeout: 180.0      # s
+    lethal_cost: 48
+    cost_weight: 4.0
+    allow_unknown: true
+    goal_search_radius: 3.0
+    goal_tolerance: 0.5
+    replan_period: 1.0
+    goal_timeout: 180.0

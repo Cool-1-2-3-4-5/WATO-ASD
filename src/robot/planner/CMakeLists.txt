@@ -14,12 +14,10 @@ find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
-# Core A* planning logic
 add_library(planner_lib src/planner_core.cpp)
 target_include_directories(planner_lib PUBLIC include)
 ament_target_dependencies(planner_lib rclcpp nav_msgs)
 
-# ROS2 node
 add_executable(planner_node src/planner_node.cpp)
 target_link_libraries(planner_node planner_lib)
 ament_target_dependencies(planner_node rclcpp nav_msgs geometry_msgs)

@@ -7,7 +7,6 @@
 
 #include "costmap_core.hpp"
 
-// Subscribes to /lidar and publishes an inflated local costmap on /costmap.
 class CostmapNode : public rclcpp::Node {
   public:
     CostmapNode();
@@ -21,4 +20,4 @@ class CostmapNode : public rclcpp::Node {
     rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_pub_;
 };
 
-#endif  // COSTMAP_NODE_HPP_
+#endif

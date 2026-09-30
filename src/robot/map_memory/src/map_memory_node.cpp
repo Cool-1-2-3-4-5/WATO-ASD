@@ -8,7 +8,7 @@ namespace
 double yawFromQuaternion(const geometry_msgs::msg::Quaternion& q) {
   return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 }
-}  // namespace
+}
 
 MapMemoryNode::MapMemoryNode() : Node("map_memory"), map_memory_(this->get_logger()) {
   robot::MapMemoryConfig config;
@@ -22,7 +22,6 @@ MapMemoryNode::MapMemoryNode() : Node("map_memory"), map_memory_(this->get_logge
   const double update_period = this->declare_parameter<double>("update_period", 1.0);
   map_memory_.configure(config);
 
-  // Transient local so late subscribers (planner, Foxglove) immediately get the latest map.
   map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
     "/map", rclcpp::QoS(1).transient_local().reliable());
   costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
@@ -32,7 +31,6 @@ MapMemoryNode::MapMemoryNode() : Node("map_memory"), map_memory_(this->get_logge
   timer_ = this->create_wall_timer(
     std::chrono::duration<double>(update_period), std::bind(&MapMemoryNode::timerCallback, this));
 
-  // Publish the (empty) map right away so the planner has something to work with.
   publishMap();
 }
 
@@ -52,7 +50,6 @@ void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   pose.yaw = yawFromQuaternion(msg->pose.pose.orientation);
   const rclcpp::Time stamp(msg->header.stamp);
 
-  // Simulation restarted (time went backwards): the old history is meaningless.
   if (!odom_history_.empty() && stamp < odom_history_.back().first) {
     odom_history_.clear();
   }

@@ -7,9 +7,8 @@ from launch_ros.actions import Node
 import os
 
 def generate_launch_description():
-    ld = LaunchDescription() # Begin building a launch description
+    ld = LaunchDescription()
 
-    #################### Costmap Node #####################
     costmap_pkg_prefix = get_package_share_directory('costmap')
     costmap_param_file = os.path.join(
         costmap_pkg_prefix, 'config', 'params.yaml')
@@ -28,7 +27,6 @@ def generate_launch_description():
     ld.add_action(costmap_param)
     ld.add_action(costmap_node)
 
-    #################### Map Memory Node #####################
     map_memory_pkg_prefix = get_package_share_directory('map_memory')
     map_memory_param_file = os.path.join(
         map_memory_pkg_prefix, 'config', 'params.yaml')
@@ -47,7 +45,6 @@ def generate_launch_description():
     ld.add_action(map_memory_param)
     ld.add_action(map_memory_node)
     
-    ##################### Planner Node #####################
     planner_pkg_prefix = get_package_share_directory('planner')
     planner_param_file = os.path.join(
         planner_pkg_prefix, 'config', 'params.yaml')
@@ -66,7 +63,6 @@ def generate_launch_description():
     ld.add_action(planner_param)
     ld.add_action(planner_node)
     
-    ##################### Control Node #####################
     control_pkg_prefix = get_package_share_directory('control')
     control_param_file = os.path.join(
         control_pkg_prefix, 'config', 'params.yaml')
@@ -85,7 +81,6 @@ def generate_launch_description():
     ld.add_action(control_param)
     ld.add_action(control_node)
 
-    #################### Odometry Spoof Node #####################
     odometry_spoof_node = Node(
         package='odometry_spoof',
         name='odometry_spoof',
