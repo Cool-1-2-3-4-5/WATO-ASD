@@ -2,117 +2,118 @@
 
 #include <chrono>
 #include <cmath>
-#include <algorithm>
 
-#include "tf2/utils.h"
-#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
-
-using namespace std;
-using namespace std::chrono_literals;
-
-MapMemoryNode::MapMemoryNode() : Node("map_memory"), has_initialized_pose_(false), last_update_x_(0.0), last_update_y_(0.0) {
-
-  global_map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", 10);
-  
-costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-    "/local_costmap", 10, std::bind(&MapMemoryNode::costmapCallback, this, std::placeholders::_1)
-  );
-  
-  odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-    "/odom/filtered", 10, std::bind(&MapMemoryNode::odomCallback, this, std::placeholders::_1)
-  );
-
-  initGlobalMap();
-
-  timer_ = this->create_wall_timer(
-    1s, std::bind(&MapMemoryNode::timerCallback, this)
-  );
+namespace
+{
+double yawFromQuaternion(const geometry_msgs::msg::Quaternion& q) {
+  return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
 }
+}  // namespace
 
-void MapMemoryNode::initGlobalMap() {
-  global_map_.header.frame_id = "map";
-  global_map_.info.resolution = 0.1;
-  global_map_.info.width = 500;
-  global_map_.info.height = 500;
-  
-  global_map_.info.origin.position.x = -25.0; 
-  global_map_.info.origin.position.y = -25.0;
-  global_map_.info.origin.position.z = 0.0;
-  global_map_.info.origin.orientation.w = 1.0;
+MapMemoryNode::MapMemoryNode() : Node("map_memory"), map_memory_(this->get_logger()) {
+  robot::MapMemoryConfig config;
+  config.frame_id = this->declare_parameter<std::string>("frame_id", config.frame_id);
+  config.resolution = this->declare_parameter<double>("resolution", config.resolution);
+  config.width = this->declare_parameter<double>("width", config.width);
+  config.height = this->declare_parameter<double>("height", config.height);
+  config.origin_x = this->declare_parameter<double>("origin_x", config.origin_x);
+  config.origin_y = this->declare_parameter<double>("origin_y", config.origin_y);
+  update_distance_ = this->declare_parameter<double>("update_distance", 1.5);
+  const double update_period = this->declare_parameter<double>("update_period", 1.0);
+  map_memory_.configure(config);
 
-  int total_cells = global_map_.info.width * global_map_.info.height;
-  global_map_.data.assign(total_cells, -1);
+  // Transient local so late subscribers (planner, Foxglove) immediately get the latest map.
+  map_pub_ = this->create_publisher<nav_msgs::msg::OccupancyGrid>(
+    "/map", rclcpp::QoS(1).transient_local().reliable());
+  costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+    "/costmap", 10, std::bind(&MapMemoryNode::costmapCallback, this, std::placeholders::_1));
+  odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+    "/odom/filtered", 10, std::bind(&MapMemoryNode::odomCallback, this, std::placeholders::_1));
+  timer_ = this->create_wall_timer(
+    std::chrono::duration<double>(update_period), std::bind(&MapMemoryNode::timerCallback, this));
+
+  // Publish the (empty) map right away so the planner has something to work with.
+  publishMap();
 }
 
 void MapMemoryNode::costmapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
+  robot::Pose2D pose;
+  if (!poseAt(rclcpp::Time(msg->header.stamp), pose)) {
+    return;
+  }
   latest_costmap_ = msg;
+  costmap_pose_ = pose;
 }
 
 void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
-  latest_odom_ = msg;
+  robot::Pose2D pose;
+  pose.x = msg->pose.pose.position.x;
+  pose.y = msg->pose.pose.position.y;
+  pose.yaw = yawFromQuaternion(msg->pose.pose.orientation);
+  const rclcpp::Time stamp(msg->header.stamp);
+
+  // Simulation restarted (time went backwards): the old history is meaningless.
+  if (!odom_history_.empty() && stamp < odom_history_.back().first) {
+    odom_history_.clear();
+  }
+  odom_history_.emplace_back(stamp, pose);
+  while (odom_history_.size() > 1 &&
+         (stamp - odom_history_.front().first).seconds() > 2.0) {
+    odom_history_.pop_front();
+  }
+}
+
+bool MapMemoryNode::poseAt(const rclcpp::Time& stamp, robot::Pose2D& pose) const {
+  if (odom_history_.empty()) {
+    return false;
+  }
+  if (stamp <= odom_history_.front().first) {
+    pose = odom_history_.front().second;
+    return true;
+  }
+  if (stamp >= odom_history_.back().first) {
+    pose = odom_history_.back().second;
+    return true;
+  }
+  for (size_t i = 1; i < odom_history_.size(); ++i) {
+    const auto& [t1, p1] = odom_history_[i];
+    if (t1 < stamp) {
+      continue;
+    }
+    const auto& [t0, p0] = odom_history_[i - 1];
+    const double span = (t1 - t0).seconds();
+    const double a = span > 0.0 ? (stamp - t0).seconds() / span : 0.0;
+    const double dyaw = std::atan2(std::sin(p1.yaw - p0.yaw), std::cos(p1.yaw - p0.yaw));
+    pose.x = p0.x + a * (p1.x - p0.x);
+    pose.y = p0.y + a * (p1.y - p0.y);
+    pose.yaw = p0.yaw + a * dyaw;
+    return true;
+  }
+  pose = odom_history_.back().second;
+  return true;
 }
 
 void MapMemoryNode::timerCallback() {
-  if (!latest_costmap_ || !latest_odom_) {
+  if (!latest_costmap_) {
     return;
   }
 
-  double current_x = latest_odom_->pose.pose.position.x;
-  double current_y = latest_odom_->pose.pose.position.y;
-
-  if (!has_initialized_pose_) {
-    last_update_x_ = current_x;
-    last_update_y_ = current_y;
-    has_initialized_pose_ = true;
-    fuseCostmap();
+  const double moved = std::hypot(costmap_pose_.x - last_fuse_x_, costmap_pose_.y - last_fuse_y_);
+  if (has_fused_ && moved < update_distance_) {
     return;
   }
 
-  double distance = sqrt(pow(current_x - last_update_x_, 2) + pow(current_y - last_update_y_, 2));
-
-  double update_thres = 1.5; 
-
-  if (distance >= update_thres) {
-    last_update_x_ = current_x;
-    last_update_y_ = current_y;
-    fuseCostmap();
-  }
+  map_memory_.fuse(*latest_costmap_, costmap_pose_);
+  last_fuse_x_ = costmap_pose_.x;
+  last_fuse_y_ = costmap_pose_.y;
+  has_fused_ = true;
+  publishMap();
 }
 
-void MapMemoryNode::fuseCostmap() {
-  double current_x = latest_odom_->pose.pose.position.x;
-  double current_y = latest_odom_->pose.pose.position.y;
-  double yaw = tf2::getYaw(latest_odom_->pose.pose.orientation);
-
-  double cos_yaw = cos(yaw);
-  double sin_yaw = sin(yaw);
-
-  for (unsigned int ly = 0; ly < latest_costmap_->info.height; ++ly) {
-    for (unsigned int lx = 0; lx < latest_costmap_->info.width; ++lx) {
-    
-      int local_index = ly * latest_costmap_->info.width + lx;
-      int local_cost = latest_costmap_->data[local_index];
-      
-      if (local_cost != -1) {
-        double local_px = (lx * latest_costmap_->info.resolution) + latest_costmap_->info.origin.position.x;
-        double local_py = (ly * latest_costmap_->info.resolution) + latest_costmap_->info.origin.position.y;
-
-        double global_px = (cos_yaw * local_px) - (sin_yaw * local_py) + current_x;
-        double global_py = (sin_yaw * local_px) + (cos_yaw * local_py) + current_y;
-
-        int gx = (global_px - global_map_.info.origin.position.x) / global_map_.info.resolution;
-        int gy = (global_py - global_map_.info.origin.position.y) / global_map_.info.resolution;
-
-        if (gx >= 0 && gx < static_cast<int>(global_map_.info.width) && gy >= 0 && gy < static_cast<int>(global_map_.info.height)) {
-            
-            int global_index = gy * global_map_.info.width + gx;
-            global_map_.data[global_index] = local_cost;
-        }
-      }
-    }
-  }
-  global_map_.header.stamp = this->now();
-  global_map_pub_->publish(global_map_);
+void MapMemoryNode::publishMap() {
+  nav_msgs::msg::OccupancyGrid msg = map_memory_.map();
+  msg.header.stamp = this->now();
+  map_pub_->publish(msg);
 }
 
 int main(int argc, char ** argv) {

@@ -1,98 +1,86 @@
 #include "control_node.hpp"
 
-using namespace std::chrono_literals;
+#include <chrono>
+#include <cmath>
+#include <memory>
 
-ControlNode::ControlNode() : Node("control_node") {
+namespace
+{
+double yawFromQuaternion(const geometry_msgs::msg::Quaternion& q) {
+  return std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+}
+}  // namespace
+
+ControlNode::ControlNode() : Node("control"), control_(this->get_logger()) {
+  robot::ControlConfig config;
+  config.lookahead_distance = this->declare_parameter<double>("lookahead_distance", config.lookahead_distance);
+  config.linear_speed = this->declare_parameter<double>("linear_speed", config.linear_speed);
+  config.min_linear_speed = this->declare_parameter<double>("min_linear_speed", config.min_linear_speed);
+  config.max_angular_speed = this->declare_parameter<double>("max_angular_speed", config.max_angular_speed);
+  config.goal_tolerance = this->declare_parameter<double>("goal_tolerance", config.goal_tolerance);
+  config.slow_down_distance = this->declare_parameter<double>("slow_down_distance", config.slow_down_distance);
+  config.rotate_in_place_angle =
+    this->declare_parameter<double>("rotate_in_place_angle", config.rotate_in_place_angle);
+  const double rate = this->declare_parameter<double>("control_rate", 10.0);
+  control_.configure(config);
+
   path_sub_ = this->create_subscription<nav_msgs::msg::Path>(
-    "/path", 10, std::bind(&ControlNode::path_callback, this, std::placeholders::_1));
-
+    "/path", 10, std::bind(&ControlNode::pathCallback, this, std::placeholders::_1));
   odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-    "/odom/filtered", 10, std::bind(&ControlNode::odom_callback, this, std::placeholders::_1));
-
+    "/odom/filtered", 10, std::bind(&ControlNode::odomCallback, this, std::placeholders::_1));
   cmd_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
 
   timer_ = this->create_wall_timer(
-    100ms, std::bind(&ControlNode::control_loop, this));
+    std::chrono::duration<double>(1.0 / rate), std::bind(&ControlNode::controlLoop, this));
+  last_odom_time_ = this->now();
 }
 
-void ControlNode::path_callback(nav_msgs::msg::Path::SharedPtr msg) {
-  path_msg_ = msg;
-}
-
-void ControlNode::odom_callback(nav_msgs::msg::Odometry::SharedPtr msg) {
-  odom_msg_ = msg;
-}
-
-void ControlNode::control_loop() {
-  if (!path_msg_ || !odom_msg_) {
-    return;
-  }
-
-  int path_size = path_msg_->poses.size();
-  if (path_size == 0) {
-    return;
-  }
-
-  double robot_x = odom_msg_->pose.pose.position.x;
-  double robot_y = odom_msg_->pose.pose.position.y;
-  
-  double qw = odom_msg_->pose.pose.orientation.w;
-  double qx = odom_msg_->pose.pose.orientation.x;
-  double qy = odom_msg_->pose.pose.orientation.y;
-  double qz = odom_msg_->pose.pose.orientation.z;
-  
-  double yaw = std::atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz));
-
-  double lookahead = 1.0;
-  double speed = 0.5;
-  
-  double target_x = path_msg_->poses[path_size - 1].pose.position.x;
-  double target_y = path_msg_->poses[path_size - 1].pose.position.y;
-
-  for (int i = 0; i < path_size; i++) {
-    double px = path_msg_->poses[i].pose.position.x;
-    double py = path_msg_->poses[i].pose.position.y;
-    double dx = px - robot_x;
-    double dy = py - robot_y;
-    double dist = std::sqrt((dx * dx) + (dy * dy));
-    
-    if (dist >= lookahead) {
-      target_x = px;
-      target_y = py;
-      break;
-    }
-  }
-
-  double final_x = path_msg_->poses[path_size - 1].pose.position.x;
-  double final_y = path_msg_->poses[path_size - 1].pose.position.y;
-  
-  double end_dx = final_x - robot_x;
-  double end_dy = final_y - robot_y;
-  double dist_to_goal = std::sqrt((end_dx * end_dx) + (end_dy * end_dy));
-
-  geometry_msgs::msg::Twist cmd;
-
-  if (dist_to_goal < 0.1) {
-    cmd.linear.x = 0.0;
-    cmd.angular.z = 0.0;
+void ControlNode::pathCallback(const nav_msgs::msg::Path::SharedPtr msg) {
+  if (msg->poses.empty()) {
+    control_.clearPath();
   } else {
-    double tx = target_x - robot_x;
-    double ty = target_y - robot_y;
-    
-    double local_y = -std::sin(yaw) * tx + std::cos(yaw) * ty;
-    double dist_to_target = std::sqrt((tx * tx) + (ty * ty));
-    
-    cmd.linear.x = speed;
-    cmd.angular.z = speed * (2.0 * local_y) / (dist_to_target * dist_to_target);
+    control_.setPath(*msg);
   }
-
-  cmd_pub_->publish(cmd);
 }
 
-int main(int argc, char **argv) {
+void ControlNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+  odom_ = msg;
+  last_odom_time_ = this->now();
+}
+
+void ControlNode::stop() {
+  // Send a single zero command so we don't fight manual teleop while idle.
+  if (moving_) {
+    cmd_pub_->publish(geometry_msgs::msg::Twist());
+    moving_ = false;
+  }
+}
+
+void ControlNode::controlLoop() {
+  if (!odom_ || !control_.hasPath()) {
+    stop();
+    return;
+  }
+  if ((this->now() - last_odom_time_).seconds() > 1.0) {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Odometry is stale, stopping");
+    stop();
+    return;
+  }
+
+  const auto& pose = odom_->pose.pose;
+  geometry_msgs::msg::Twist cmd;
+  if (!control_.computeCommand(pose.position.x, pose.position.y,
+                               yawFromQuaternion(pose.orientation), cmd)) {
+    stop();
+    return;
+  }
+  cmd_pub_->publish(cmd);
+  moving_ = true;
+}
+
+int main(int argc, char ** argv) {
   rclcpp::init(argc, argv);
-  std::shared_ptr<ControlNode> node = std::make_shared<ControlNode>();
-  rclcpp::spin(node);
+  rclcpp::spin(std::make_shared<ControlNode>());
   rclcpp::shutdown();
   return 0;
 }
